@@ -67,23 +67,28 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 4. FUNÇÃO DE INTELIGÊNCIA (GOOGLE) ---
-def get_ai_strategy(api_key, image, cenario):
+# Agora recebe 'observacoes' como parâmetro opcional
+def get_ai_strategy(api_key, image, cenario, observacoes=""):
     genai.configure(api_key=api_key)
     
     # Lista de modelos para tentar
     modelos = ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-1.5-pro", "gemini-pro"]
     
+    # Tratamento se não tiver observação
+    texto_extra = f"OBSERVAÇÕES DO VENDEDOR (Incorpore isso na Copy): {observacoes}" if observacoes else ""
+
     prompt_sistema = f"""
-    Você é um especialista em E-commerce e um Engenheiro de Prompt Sênior para Midjourney e Flux.
-    Analise esta imagem do produto. O objetivo é vender este produto na Shopee.
+    Você é um especialista em E-commerce e um Engenheiro de Prompt Sênior.
     
-    O produto deve ser imaginado neste cenário: {cenario}.
+    1. ANALISE A IMAGEM DO PRODUTO.
+    2. CONSIDERE ESTAS INFORMAÇÕES EXTRAS: {texto_extra}
+    3. O CENÁRIO DESEJADO É: {cenario}.
     
     GERE DUAS SAÍDAS DISTINTAS:
     
     SAÍDA 1: COPY SHOPEE
     - Título SEO (com ícones, max 60 chars)
-    - Descrição AIDA (Atenção, Interesse, Desejo, Ação) curta e persuasiva.
+    - Descrição AIDA (Atenção, Interesse, Desejo, Ação) curta e persuasiva. Use as informações extras para dar detalhes técnicos ou emocionais.
     - 5 Benefícios em bullets.
     
     SAÍDA 2: PROMPT MASTER DE IMAGEM (Em Inglês)
@@ -91,7 +96,6 @@ def get_ai_strategy(api_key, image, cenario):
     Estrutura do Prompt:
     [Sujeito Principal Detalhado] + [Ambiente/Cenário] + [Iluminação de Estúdio/Cinemática] + [Detalhes da Câmera] + [Estilo: Photorealistic, 8k, Unreal Engine 5 render].
     Não use frases como "Generate an image". Comece direto com a descrição visual.
-    Use palavras-chave como: "hyper-detailed", "soft lighting", "bokeh", "product photography", "award winning".
     
     Separe as saídas com a tag: ---DIVISOR---
     """
@@ -132,32 +136,37 @@ with st.sidebar:
 tab1, tab2 = st.tabs(["🎨 Estúdio Criativo (IA)", "🧮 Calculadora de Preço (R$)"])
 
 # ==========================================
-# ABA 1: CRIAÇÃO DE CONTEÚDO (CÓDIGO ORIGINAL)
+# ABA 1: CRIAÇÃO DE CONTEÚDO
 # ==========================================
 with tab1:
     st.header("Gerador de Estratégia & Prompts")
     
-    cenario = st.selectbox("Onde o produto será fotografado?", [
-        "Fundo Infinito Branco (E-commerce Padrão)", 
-        "Cozinha Gourmet Moderna (High End)",
-        "Banheiro de Luxo em Mármore (Spa Vibe)", 
-        "Sala de Estar Aconchegante (Lifestyle)", 
-        "Ao Ar Livre / Natureza (Golden Hour)", 
-        "Mesa de Escritório Minimalista (Productivity)",
-        "Estúdio Neon Cyberpunk (Gamer/Tech)"
-    ])
-    st.info("💡 Dica: O prompt gerado aqui deve ser usado no Midjourney, Leonardo.ai ou Bing.")
-
     col1, col2 = st.columns([1, 1])
 
     with col1:
-        st.subheader("1. Seu Produto")
-        uploaded_file = st.file_uploader("Arraste a foto do fornecedor", type=["jpg", "png", "jpeg", "webp"])
+        st.subheader("1. Dados do Produto")
+        uploaded_file = st.file_uploader("Arraste a foto do produto", type=["jpg", "png", "jpeg", "webp"])
         
+        # --- NOVO CAMPO DE OBSERVAÇÕES ---
+        observacoes = st.text_area(
+            "Detalhes Especiais (Opcional)", 
+            placeholder="Ex: Molho de pimenta defumado, receita caseira, sem conservantes, validade de 1 ano..."
+        )
+        
+        cenario = st.selectbox("Cenário para a Foto", [
+            "Fundo Infinito Branco (E-commerce Padrão)", 
+            "Cozinha Gourmet Moderna (High End)",
+            "Banheiro de Luxo em Mármore (Spa Vibe)", 
+            "Sala de Estar Aconchegante (Lifestyle)", 
+            "Ao Ar Livre / Natureza (Golden Hour)", 
+            "Mesa de Escritório Minimalista (Productivity)",
+            "Estúdio Neon Cyberpunk (Gamer/Tech)"
+        ])
+
         if uploaded_file:
             image = Image.open(uploaded_file)
             st.image(image, caption="Referência", use_column_width=True)
-            btn_gerar = st.button("🚀 Gerar Estratégia + Prompt Master", type="primary", use_container_width=True)
+            btn_gerar = st.button("🚀 Gerar Copy + Prompt", type="primary", use_container_width=True)
 
     if uploaded_file and 'btn_gerar' in locals() and btn_gerar:
         if not google_key:
@@ -165,9 +174,10 @@ with tab1:
         else:
             with col2:
                 st.subheader("2. Estratégia IA")
-                with st.spinner("🧠 Analisando texturas, luz e mercado..."):
+                with st.spinner("🧠 Analisando imagem + suas observações..."):
                     try:
-                        full_response = get_ai_strategy(google_key, image, cenario)
+                        # Passamos a variável 'observacoes' para a função
+                        full_response = get_ai_strategy(google_key, image, cenario, observacoes)
                         
                         if "---DIVISOR---" in full_response:
                             parts = full_response.split("---DIVISOR---")
