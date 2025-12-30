@@ -4,6 +4,7 @@ from PIL import Image
 import requests
 import io
 import time
+import random
 
 # --- 1. CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Shopee AI Studio | Ti Piantoni", page_icon="🚀", layout="wide")
@@ -44,69 +45,86 @@ st.markdown("""
 
 # --- 4. FUNÇÕES DE IA ---
 
-def query_huggingface(payload, api_key):
+def generate_image_with_fallback(prompt, api_key):
     """
-    CORREÇÃO DO ERRO 410:
-    Mudamos para o modelo 'runwayml/stable-diffusion-v1-5' que é super estável.
+    Tenta gerar imagem usando uma lista de modelos. Se um falhar, tenta o próximo.
     """
-    API_URL = "https://api-inference.huggingface.co/models/runwayml/stable-diffusion-v1-5"
-    headers = {"Authorization": f"Bearer {api_key}"}
+    # LISTA DE MODELOS (Do mais novo para o mais antigo/estável)
+    modelos = [
+        "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2-1",
+        "https://api-inference.huggingface.co/models/runwayml/stable-diffusion-v1-5",
+        "https://api-inference.huggingface.co/models/prompthero/openjourney",
+        "https://api-inference.huggingface.co/models/CompVis/stable-diffusion-v1-4",
+        "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2"
+    ]
     
-    # Tenta até 3 vezes (Lógica de Paciência)
-    for tentativa in range(3):
-        response = requests.post(API_URL, headers=headers, json=payload)
+    headers = {"Authorization": f"Bearer {api_key}"}
+    payload = {"inputs": prompt, "parameters": {"negative_prompt": "blurry, bad quality, watermark, text, ugly"}}
+
+    log_erros = []
+
+    for model_url in modelos:
+        model_name = model_url.split("/")[-1]
         
-        # Sucesso (200)
-        if response.status_code == 200:
-            return response.content
-        
-        # Servidor Carregando (503) - Comum no plano grátis
-        elif response.status_code == 503:
+        # Tenta conectar no modelo atual (até 3 tentativas de 'acordar')
+        for tentativa in range(3):
             try:
-                dados = response.json()
-                tempo_estimado = dados.get('estimated_time', 15)
-                st.toast(f"💤 Servidor acordando... Aguarde {tempo_estimado:.0f}s.", icon="⏳")
-                time.sleep(tempo_estimado)
-                continue 
-            except:
-                time.sleep(10)
-                continue
+                response = requests.post(model_url, headers=headers, json=payload, timeout=20)
+                
+                # SUCESSO (200)
+                if response.status_code == 200:
+                    return response.content, model_name
+                
+                # DORMINDO (503)
+                elif response.status_code == 503:
+                    wait_time = response.json().get('estimated_time', 10)
+                    st.toast(f"⏳ {model_name} carregando ({wait_time:.0f}s)...", icon="💤")
+                    time.sleep(wait_time)
+                    continue # Tenta o mesmo modelo de novo
+                
+                # ERRO DE ACESSO/MODELO (404, 410, 403)
+                else:
+                    # Se der erro fatal, sai do loop de tentativas e vai pro próximo modelo
+                    break
+                    
+            except Exception as e:
+                break
         
-        # Erro 410 ou 404 (Modelo mudou) - Tentativa final
-        elif response.status_code in [404, 410]:
-             st.error("Erro no modelo de imagem. Verifique se o modelo está ativo na Hugging Face.")
-             break
+        # Se chegou aqui, o modelo falhou. Registra e vai pro próximo da lista.
+        log_erros.append(f"{model_name}: Falhou")
+        continue
 
-    response.raise_for_status()
-    return response.content
+    # Se saiu do loop principal, nenhum funcionou
+    raise Exception(f"Todos os geradores falharam. Verifique seu Token HF. (Log: {log_erros})")
 
-def get_working_model_response(api_key, prompt, image):
+def get_text_ai_response(api_key, prompt, image):
     """
-    Auto-Descoberta de modelo do Google (Texto) - Já validada e funcionando!
+    Auto-Descoberta de modelo do Google (Texto)
     """
     genai.configure(api_key=api_key)
     available_models = []
-
+    
+    # Lista modelos
     try:
         for m in genai.list_models():
             if 'generateContent' in m.supported_generation_methods:
-                if 'flash' in m.name: 
-                    available_models.insert(0, m.name)
-                else:
-                    available_models.append(m.name)
-    except Exception as e:
-        raise Exception(f"Erro ao listar modelos: {e}")
+                if 'flash' in m.name: available_models.insert(0, m.name)
+                else: available_models.append(m.name)
+    except:
+        # Fallback manual se a listagem falhar
+        available_models = ['gemini-1.5-flash', 'gemini-1.5-flash-latest', 'gemini-pro']
 
+    # Testa modelos
     for model_name in available_models:
         try:
-            if '1.0' in model_name or 'vision' in model_name: continue
+            if 'vision' in model_name and '1.0' in model_name: continue
             model = genai.GenerativeModel(model_name)
             response = model.generate_content([prompt, image])
             return response.text, model_name
         except:
             continue
             
-    raise Exception("Nenhum modelo do Google funcionou.")
+    raise Exception("Erro no Google AI. Verifique a chave API.")
 
 # --- 5. BARRA LATERAL ---
 with st.sidebar:
@@ -153,8 +171,8 @@ if uploaded_file and 'btn_gerar' in locals() and btn_gerar:
         with col2:
             st.subheader("2. Resultado IA")
             
-            # --- FASE 1: TEXTO (GOOGLE) ---
-            with st.spinner("🧠 Ti Piantoni AI: Criando estratégia..."):
+            # --- FASE 1: TEXTO ---
+            with st.spinner("🧠 Analisando produto..."):
                 try:
                     prompt_full = f"""
                     Analise esta imagem. O produto deve ser inserido neste cenário: {cenario}.
@@ -162,42 +180,39 @@ if uploaded_file and 'btn_gerar' in locals() and btn_gerar:
                     TAREFA 2: Crie um anúncio persuasivo para Shopee.
                     """
                     
-                    response_text, modelo_usado = get_working_model_response(google_key, prompt_full, image)
-                    st.toast(f"Texto ok! ({modelo_usado})", icon='📝')
+                    response_text, modelo_texto = get_text_ai_response(google_key, prompt_full, image)
+                    st.toast(f"Texto ok ({modelo_texto})", icon='📝')
                     
                     try:
                         prompt_img = response_text.split("PROMPT_IMG:")[1].split("\n")[0].strip()
                     except:
-                        prompt_img = f"Professional photo of product in {cenario}, 4k"
+                        prompt_img = f"High quality photo of product in {cenario}, 4k"
                     
                     st.markdown(response_text.replace("PROMPT_IMG:", "**Prompt Visual:** "))
                     
                 except Exception as e:
-                    st.error(f"Erro no Texto: {e}")
+                    st.error(f"Erro Texto: {e}")
                     st.stop()
             
-            # --- FASE 2: IMAGEM (NOVO MODELO RUNWAYML) ---
+            # --- FASE 2: IMAGEM (MULTI-MOTOR) ---
             st.divider()
             st.subheader(f"📸 {qtd_imagens} Variações")
             cols = st.columns(qtd_imagens)
             
             for i in range(qtd_imagens):
                 with cols[i]:
-                    with st.spinner(f"Foto {i+1}..."):
+                    with st.spinner(f"Criando foto {i+1}..."):
                         try:
-                            seed_variation = i * 1234 + int(time.time() % 100)
-                            image_bytes = query_huggingface({
-                                "inputs": prompt_img, 
-                                "parameters": {
-                                    "seed": seed_variation, 
-                                    "negative_prompt": "blurry, bad art, watermark"
-                                }
-                            }, hf_key)
+                            # Varia a 'semente' para a foto não sair igual
+                            seed = random.randint(1, 99999)
+                            final_prompt = f"{prompt_img}, seed: {seed}"
                             
-                            generated_image = Image.open(io.BytesIO(image_bytes))
-                            st.image(generated_image, use_column_width=True)
+                            img_bytes, modelo_img = generate_image_with_fallback(final_prompt, hf_key)
+                            
+                            st.image(Image.open(io.BytesIO(img_bytes)), use_column_width=True)
+                            st.caption(f"Gerado via: {modelo_img}")
                                 
                         except Exception as e:
-                            st.warning(f"Falha na imagem {i+1}. Tente novamente.")
+                            st.warning(f"Erro foto {i+1}: {e}")
             
-            st.success("Sucesso Final!")
+            st.success("Sucesso! Pode cadastrar na Shopee.")
