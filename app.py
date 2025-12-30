@@ -1,17 +1,11 @@
 import streamlit as st
 import google.generativeai as genai
 from PIL import Image
-import requests
-import io
-import time
-import random
-import urllib.parse
-import re
 
 # --- 1. CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Shopee AI Studio | Ti Piantoni", page_icon="🚀", layout="wide")
 
-# --- 2. ESTILO CSS ---
+# --- 2. ESTILO CSS (VISUAL TI PIANTONI) ---
 st.markdown("""
 <style>
     .branding-box {
@@ -34,12 +28,19 @@ st.markdown("""
         font-size: 0.95rem;
         margin-top: 5px;
     }
-    /* Esconde traceback de erro para não assustar o usuário */
-    .stException { display: none !important; }
+    .prompt-box {
+        background-color: #262730;
+        color: #ffffff;
+        padding: 15px;
+        border-radius: 5px;
+        border: 1px solid #4e4e4e;
+        font-family: monospace;
+        margin-top: 10px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 3. CABEÇALHO VISUAL ---
+# --- 3. CABEÇALHO ---
 st.markdown("""
 <div class="branding-box">
     <div class="branding-title">🚀 Shopee AI Studio</div>
@@ -47,58 +48,44 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# --- 4. FUNÇÕES DE IA (BLINDADAS) ---
-
-def sanitize_prompt(text):
-    """
-    O TRITURADOR: Remove tudo que não for letra ou número e corta o tamanho
-    para garantir que a URL nunca quebre.
-    """
-    # Mantém apenas letras (a-z, A-Z), números (0-9) e espaços. Remove o resto.
-    cleaned = re.sub(r'[^a-zA-Z0-9\s]', '', text)
-    # Corta para no máximo 100 caracteres por segurança extrema
-    return cleaned[:100]
-
-def generate_image_pollinations_safe(prompt):
-    """
-    Gera imagem via Pollinations com tratamento de erro robusto.
-    Retorna None se falhar, em vez de travar o app.
-    """
-    try:
-        # 1. Limpeza Extrema do Prompt
-        prompt_safe = sanitize_prompt(prompt)
-        
-        # 2. Monta a URL
-        prompt_encoded = urllib.parse.quote(prompt_safe)
-        seed = random.randint(1, 99999)
-        # Usando modelo 'flux' que é o melhor atualmente lá
-        image_url = f"https://pollinations.ai/p/{prompt_encoded}?width=1024&height=1024&seed={seed}&nologo=true&model=flux"
-        
-        # Fake browser headers
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
-        
-        response = requests.get(image_url, headers=headers, timeout=20)
-        
-        # Verifica se deu certo E se o que voltou é realmente uma imagem
-        if response.status_code == 200 and "image" in response.headers.get("content-type", ""):
-            return response.content
-        else:
-            return None # Falhou silenciosamente
-            
-    except Exception:
-        return None # Falhou silenciosamente
-
-def get_text_ai_response(api_key, prompt, image):
-    # Tenta vários modelos do Google em ordem
+# --- 4. FUNÇÃO DE INTELIGÊNCIA (GOOGLE) ---
+def get_ai_strategy(api_key, image, cenario):
     genai.configure(api_key=api_key)
-    candidate_models = ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-1.5-pro", "gemini-pro"]
     
-    for model_name in candidate_models:
+    # Lista de modelos para tentar (do mais rápido para o mais robusto)
+    modelos = ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-1.5-pro", "gemini-pro"]
+    
+    # Prompt de Engenharia Reversa para criar o PROMPT DE IMAGEM PERFEITO
+    prompt_sistema = f"""
+    Você é um especialista em E-commerce e um Engenheiro de Prompt Sênior para Midjourney e Flux.
+    Analise esta imagem do produto. O objetivo é vender este produto na Shopee.
+    
+    O produto deve ser imaginado neste cenário: {cenario}.
+    
+    GERE DUAS SAÍDAS DISTINTAS:
+    
+    SAÍDA 1: COPY SHOPEE
+    - Título SEO (com ícones, max 60 chars)
+    - Descrição AIDA (Atenção, Interesse, Desejo, Ação) curta e persuasiva.
+    - 5 Benefícios em bullets.
+    
+    SAÍDA 2: PROMPT MASTER DE IMAGEM (Em Inglês)
+    Escreva um prompt altamente detalhado para gerar uma foto publicitária premiada deste produto.
+    Estrutura do Prompt:
+    [Sujeito Principal Detalhado] + [Ambiente/Cenário] + [Iluminação de Estúdio/Cinemática] + [Detalhes da Câmera] + [Estilo: Photorealistic, 8k, Unreal Engine 5 render].
+    Não use frases como "Generate an image". Comece direto com a descrição visual.
+    Use palavras-chave como: "hyper-detailed", "soft lighting", "bokeh", "product photography", "award winning".
+    
+    Separe as saídas com a tag: ---DIVISOR---
+    """
+    
+    for model_name in modelos:
         try:
             model = genai.GenerativeModel(model_name)
-            response = model.generate_content([prompt, image])
-            return response.text, model_name
-        except: continue
+            response = model.generate_content([prompt_sistema, image])
+            return response.text
+        except:
+            continue
             
     # Tenta listar da conta se os padrão falharem
     try:
@@ -106,81 +93,83 @@ def get_text_ai_response(api_key, prompt, image):
             if 'generateContent' in m.supported_generation_methods:
                  try:
                     model = genai.GenerativeModel(m.name)
-                    response = model.generate_content([prompt, image])
-                    return response.text, m.name
+                    response = model.generate_content([prompt_sistema, image])
+                    return response.text
                  except: continue
     except: pass
-    raise Exception("Nenhum modelo do Google funcionou. Verifique sua chave API.")
+    
+    raise Exception("Erro de conexão com Google AI. Verifique sua chave.")
 
 # --- 5. BARRA LATERAL ---
 with st.sidebar:
-    st.header("🔐 Chaves de Acesso")
+    st.header("🔐 Configuração")
     if "GOOGLE_API_KEY" in st.secrets:
         google_key = st.secrets["GOOGLE_API_KEY"]
-        st.success("Google AI Conectado", icon="✅")
+        st.success("Cérebro Conectado (Google)", icon="✅")
     else:
-        google_key = st.text_input("Google API Key", type="password")
+        google_key = st.text_input("Cole sua Google API Key", type="password")
 
-    st.success("Gerador de Imagem: Pollinations (Ativo)", icon="🎨")
     st.divider()
-    st.header("🎨 Estúdio Criativo")
-    cenario = st.selectbox("Cenário", ["Fundo Infinito Branco", "Banheiro de Luxo", "Cozinha Moderna", "Sala de Estar", "Ao Ar Livre", "Escritório Minimalista"])
-    qtd_imagens = st.slider("Qtd. Fotos", 1, 4, 2)
+    st.header("🎨 Direção de Arte")
+    cenario = st.selectbox("Onde o produto será fotografado?", [
+        "Fundo Infinito Branco (E-commerce Padrão)", 
+        "Cozinha Gourmet Moderna (High End)",
+        "Banheiro de Luxo em Mármore (Spa Vibe)", 
+        "Sala de Estar Aconchegante (Lifestyle)", 
+        "Ao Ar Livre / Natureza (Golden Hour)", 
+        "Mesa de Escritório Minimalista (Productivity)",
+        "Estúdio Neon Cyberpunk (Gamer/Tech)"
+    ])
+    
+    st.info("💡 Dica: Copie o prompt gerado e use no Midjourney, Leonardo.ai ou Bing Image Creator.")
     st.markdown("© 2025 **Ti Piantoni**")
 
 # --- 6. INTERFACE PRINCIPAL ---
-col1, col2 = st.columns([1, 1.2])
+col1, col2 = st.columns([1, 1])
+
 with col1:
-    st.subheader("1. Produto Original")
-    uploaded_file = st.file_uploader("Upload da Foto", type=["jpg", "png", "jpeg"])
+    st.subheader("1. Seu Produto")
+    uploaded_file = st.file_uploader("Arraste a foto do fornecedor", type=["jpg", "png", "jpeg", "webp"])
+    
     if uploaded_file:
         image = Image.open(uploaded_file)
-        st.image(image, caption="Sua Foto", use_column_width=True)
-        btn_gerar = st.button(f"🚀 Gerar Copy + {qtd_imagens} Fotos", type="primary", use_container_width=True)
+        st.image(image, caption="Referência", use_column_width=True)
+        btn_gerar = st.button("🚀 Gerar Estratégia + Prompt Master", type="primary", use_container_width=True)
 
-# --- 7. LÓGICA PRINCIPAL ---
+# --- 7. PROCESSAMENTO ---
 if uploaded_file and 'btn_gerar' in locals() and btn_gerar:
     if not google_key:
-        st.error("⚠️ Coloque a Google API Key primeiro.")
+        st.error("⚠️ Você precisa colocar a chave do Google na barra lateral.")
     else:
         with col2:
-            st.subheader("2. Resultado IA")
-            # FASE 1: TEXTO
-            with st.spinner("🧠 Analisando produto..."):
+            st.subheader("2. Estratégia IA")
+            
+            with st.spinner("🧠 Analisando texturas, luz e mercado..."):
                 try:
-                    # Pedimos apenas PALAVRAS-CHAVE para a imagem
-                    prompt_full = f"""
-                    Analise esta imagem. O produto deve ser inserido neste cenário: {cenario}.
-                    TAREFA 1 (IMPORTANTE): Para gerar a imagem, me dê APENAS 3 a 5 PALAVRAS-CHAVE em Inglês. Não use frases completas. Exemplo: 'red shoes modern kitchen sunlight'. Comece com 'PROMPT_IMG:'.
-                    TAREFA 2: Crie um anúncio persuasivo para Shopee (Título, Descrição, Benefícios).
-                    """
-                    response_text, modelo_texto = get_text_ai_response(google_key, prompt_full, image)
-                    st.toast(f"Texto ok ({modelo_texto})", icon='📝')
-                    try: prompt_img = response_text.split("PROMPT_IMG:")[1].split("\n")[0].strip()
-                    except: prompt_img = f"product {cenario} high quality"
-                    st.markdown(response_text.replace("PROMPT_IMG:", "**Keywords da Imagem:** "))
+                    full_response = get_ai_strategy(google_key, image, cenario)
+                    
+                    # Separa a Copy do Prompt
+                    if "---DIVISOR---" in full_response:
+                        parts = full_response.split("---DIVISOR---")
+                        copy_shopee = parts[0].strip()
+                        prompt_img = parts[1].strip().replace("SAÍDA 2: PROMPT MASTER DE IMAGEM (Em Inglês)", "").strip()
+                    else:
+                        copy_shopee = full_response
+                        prompt_img = "Erro ao separar o prompt. Tente novamente."
+
+                    # EXIBIÇÃO DA COPY
+                    st.markdown(copy_shopee)
+                    
+                    st.divider()
+                    
+                    # EXIBIÇÃO DO PROMPT
+                    st.subheader("🎨 Seu Prompt Gerador de Imagens")
+                    st.markdown("Copie o código abaixo e cole em qualquer IA de imagem (Midjourney, Bing, Leonardo, Flux):")
+                    
+                    # Caixa de código para facilitar a cópia
+                    st.code(prompt_img, language="text")
+                    
+                    st.success("Estratégia criada! Agora você tem o controle total da imagem.")
+                    
                 except Exception as e:
-                    st.error(f"Erro Texto: {e}")
-                    st.stop()
-            
-            # FASE 2: IMAGEM (BLINDADA)
-            st.divider()
-            st.subheader(f"📸 {qtd_imagens} Variações")
-            cols = st.columns(qtd_imagens)
-            for i in range(qtd_imagens):
-                with cols[i]:
-                    with st.spinner(f"Criando foto {i+1}..."):
-                        # Chama a função segura
-                        img_bytes = generate_image_pollinations_safe(prompt_img)
-                        if img_bytes:
-                            try:
-                                # Tenta mostrar a imagem
-                                st.image(Image.open(io.BytesIO(img_bytes)), use_column_width=True)
-                            except:
-                                # Se a imagem veio corrompida
-                                st.warning("⚠️ Falha na renderização.")
-                        else:
-                             # Se o servidor de imagem falhou (retornou None)
-                            st.warning("⚠️ Servidor de imagem instável. Tente novamente.")
-            
-            st.success("Processo finalizado.")
+                    st.error(f"Ocorreu um erro: {e}")
