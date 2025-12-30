@@ -5,6 +5,7 @@ import requests
 import io
 import time
 import random
+import urllib.parse
 
 # --- 1. CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Shopee AI Studio | Ti Piantoni", page_icon="🚀", layout="wide")
@@ -45,86 +46,56 @@ st.markdown("""
 
 # --- 4. FUNÇÕES DE IA ---
 
-def generate_image_with_fallback(prompt, api_key):
+def generate_image_pollinations(prompt):
     """
-    Tenta gerar imagem usando uma lista de modelos. Se um falhar, tenta o próximo.
+    Gera imagem usando Pollinations.ai (Não precisa de API Key).
     """
-    # LISTA DE MODELOS (Do mais novo para o mais antigo/estável)
-    modelos = [
-        "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2-1",
-        "https://api-inference.huggingface.co/models/runwayml/stable-diffusion-v1-5",
-        "https://api-inference.huggingface.co/models/prompthero/openjourney",
-        "https://api-inference.huggingface.co/models/CompVis/stable-diffusion-v1-4",
-        "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2"
-    ]
+    # Codifica o prompt para URL
+    prompt_encoded = urllib.parse.quote(prompt)
+    seed = random.randint(1, 99999)
     
-    headers = {"Authorization": f"Bearer {api_key}"}
-    payload = {"inputs": prompt, "parameters": {"negative_prompt": "blurry, bad quality, watermark, text, ugly"}}
-
-    log_erros = []
-
-    for model_url in modelos:
-        model_name = model_url.split("/")[-1]
-        
-        # Tenta conectar no modelo atual (até 3 tentativas de 'acordar')
-        for tentativa in range(3):
-            try:
-                response = requests.post(model_url, headers=headers, json=payload, timeout=20)
-                
-                # SUCESSO (200)
-                if response.status_code == 200:
-                    return response.content, model_name
-                
-                # DORMINDO (503)
-                elif response.status_code == 503:
-                    wait_time = response.json().get('estimated_time', 10)
-                    st.toast(f"⏳ {model_name} carregando ({wait_time:.0f}s)...", icon="💤")
-                    time.sleep(wait_time)
-                    continue # Tenta o mesmo modelo de novo
-                
-                # ERRO DE ACESSO/MODELO (404, 410, 403)
-                else:
-                    # Se der erro fatal, sai do loop de tentativas e vai pro próximo modelo
-                    break
-                    
-            except Exception as e:
-                break
-        
-        # Se chegou aqui, o modelo falhou. Registra e vai pro próximo da lista.
-        log_erros.append(f"{model_name}: Falhou")
-        continue
-
-    # Se saiu do loop principal, nenhum funcionou
-    raise Exception(f"Todos os geradores falharam. Verifique seu Token HF. (Log: {log_erros})")
+    # URL Mágica (Modelo Flux ou SDXL)
+    image_url = f"https://pollinations.ai/p/{prompt_encoded}?width=1024&height=1024&seed={seed}&model=flux"
+    
+    # Baixa a imagem gerada
+    response = requests.get(image_url, timeout=30)
+    
+    if response.status_code == 200:
+        return response.content
+    else:
+        raise Exception(f"Erro no servidor Pollinations: {response.status_code}")
 
 def get_text_ai_response(api_key, prompt, image):
     """
     Auto-Descoberta de modelo do Google (Texto)
     """
     genai.configure(api_key=api_key)
-    available_models = []
     
-    # Lista modelos
-    try:
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods:
-                if 'flash' in m.name: available_models.insert(0, m.name)
-                else: available_models.append(m.name)
-    except:
-        # Fallback manual se a listagem falhar
-        available_models = ['gemini-1.5-flash', 'gemini-1.5-flash-latest', 'gemini-pro']
-
-    # Testa modelos
-    for model_name in available_models:
+    # Tenta modelos na ordem de preferência
+    candidate_models = ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-1.5-pro", "gemini-pro"]
+    
+    for model_name in candidate_models:
         try:
-            if 'vision' in model_name and '1.0' in model_name: continue
             model = genai.GenerativeModel(model_name)
             response = model.generate_content([prompt, image])
             return response.text, model_name
         except:
             continue
             
-    raise Exception("Erro no Google AI. Verifique a chave API.")
+    # Se falhar nos nomes padrão, tenta listar da conta
+    try:
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                 try:
+                    model = genai.GenerativeModel(m.name)
+                    response = model.generate_content([prompt, image])
+                    return response.text, m.name
+                 except:
+                     continue
+    except:
+        pass
+
+    raise Exception("Erro no Google AI. Verifique a chave API ou a Cota.")
 
 # --- 5. BARRA LATERAL ---
 with st.sidebar:
@@ -136,11 +107,8 @@ with st.sidebar:
     else:
         google_key = st.text_input("Google API Key", type="password")
 
-    if "HUGGINGFACE_KEY" in st.secrets:
-        hf_key = st.secrets["HUGGINGFACE_KEY"]
-        st.success("Hugging Face Conectado", icon="✅")
-    else:
-        hf_key = st.text_input("Hugging Face Token", type="password")
+    # REMOVI O CAMPO DA HUGGING FACE POIS NÃO PRECISA MAIS!
+    st.success("Gerador de Imagem: Pollinations (Grátis/Sem Chave)", icon="🎨")
 
     st.divider()
     st.header("🎨 Estúdio Criativo")
@@ -165,8 +133,8 @@ with col1:
 
 # --- 7. LÓGICA PRINCIPAL ---
 if uploaded_file and 'btn_gerar' in locals() and btn_gerar:
-    if not google_key or not hf_key:
-        st.error("⚠️ Configure as chaves de API primeiro.")
+    if not google_key:
+        st.error("⚠️ Coloque a Google API Key primeiro.")
     else:
         with col2:
             st.subheader("2. Resultado IA")
@@ -194,7 +162,7 @@ if uploaded_file and 'btn_gerar' in locals() and btn_gerar:
                     st.error(f"Erro Texto: {e}")
                     st.stop()
             
-            # --- FASE 2: IMAGEM (MULTI-MOTOR) ---
+            # --- FASE 2: IMAGEM (POLLINATIONS - SEM CHAVE) ---
             st.divider()
             st.subheader(f"📸 {qtd_imagens} Variações")
             cols = st.columns(qtd_imagens)
@@ -203,14 +171,12 @@ if uploaded_file and 'btn_gerar' in locals() and btn_gerar:
                 with cols[i]:
                     with st.spinner(f"Criando foto {i+1}..."):
                         try:
-                            # Varia a 'semente' para a foto não sair igual
-                            seed = random.randint(1, 99999)
-                            final_prompt = f"{prompt_img}, seed: {seed}"
+                            # Adiciona detalhes para melhorar a qualidade
+                            final_prompt = f"{prompt_img}, photorealistic, 8k, highly detailed, product photography"
                             
-                            img_bytes, modelo_img = generate_image_with_fallback(final_prompt, hf_key)
+                            img_bytes = generate_image_pollinations(final_prompt)
                             
                             st.image(Image.open(io.BytesIO(img_bytes)), use_column_width=True)
-                            st.caption(f"Gerado via: {modelo_img}")
                                 
                         except Exception as e:
                             st.warning(f"Erro foto {i+1}: {e}")
