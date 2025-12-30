@@ -46,13 +46,13 @@ st.markdown("""
 
 def query_huggingface(payload, api_key):
     """
-    Tenta conectar na API de imagem. Se o servidor estiver 'dormindo' (Erro 503),
-    ele espera o tempo solicitado e tenta de novo.
+    CORREÇÃO DO ERRO 410:
+    Mudamos para o modelo 'runwayml/stable-diffusion-v1-5' que é super estável.
     """
-    API_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0"
+    API_URL = "https://api-inference.huggingface.co/models/runwayml/stable-diffusion-v1-5"
     headers = {"Authorization": f"Bearer {api_key}"}
     
-    # Tenta até 3 vezes
+    # Tenta até 3 vezes (Lógica de Paciência)
     for tentativa in range(3):
         response = requests.post(API_URL, headers=headers, json=payload)
         
@@ -60,55 +60,53 @@ def query_huggingface(payload, api_key):
         if response.status_code == 200:
             return response.content
         
-        # Servidor Carregando (503)
+        # Servidor Carregando (503) - Comum no plano grátis
         elif response.status_code == 503:
             try:
                 dados = response.json()
                 tempo_estimado = dados.get('estimated_time', 15)
-                st.toast(f"💤 O servidor de imagem está acordando... Aguarde {tempo_estimado:.0f}s.", icon="⏳")
+                st.toast(f"💤 Servidor acordando... Aguarde {tempo_estimado:.0f}s.", icon="⏳")
                 time.sleep(tempo_estimado)
-                continue # Tenta de novo
+                continue 
             except:
-                break
+                time.sleep(10)
+                continue
         
-        # Erro de Autorização (401)
-        elif response.status_code == 401:
-            raise Exception("Erro na Chave Hugging Face. Verifique se o Token tem permissão 'WRITE'.")
-            
-    # Se falhar após tentativas
+        # Erro 410 ou 404 (Modelo mudou) - Tentativa final
+        elif response.status_code in [404, 410]:
+             st.error("Erro no modelo de imagem. Verifique se o modelo está ativo na Hugging Face.")
+             break
+
     response.raise_for_status()
     return response.content
 
 def get_working_model_response(api_key, prompt, image):
     """
-    Auto-Descoberta de modelo do Google (Texto)
+    Auto-Descoberta de modelo do Google (Texto) - Já validada e funcionando!
     """
     genai.configure(api_key=api_key)
     available_models = []
 
     try:
-        # Lista modelos disponíveis
         for m in genai.list_models():
             if 'generateContent' in m.supported_generation_methods:
-                if 'flash' in m.name: # Prioriza Flash
+                if 'flash' in m.name: 
                     available_models.insert(0, m.name)
                 else:
                     available_models.append(m.name)
     except Exception as e:
         raise Exception(f"Erro ao listar modelos: {e}")
 
-    # Testa um por um
     for model_name in available_models:
         try:
             if '1.0' in model_name or 'vision' in model_name: continue
-            
             model = genai.GenerativeModel(model_name)
             response = model.generate_content([prompt, image])
             return response.text, model_name
         except:
             continue
             
-    raise Exception("Nenhum modelo do Google funcionou. Verifique sua chave API.")
+    raise Exception("Nenhum modelo do Google funcionou.")
 
 # --- 5. BARRA LATERAL ---
 with st.sidebar:
@@ -162,11 +160,10 @@ if uploaded_file and 'btn_gerar' in locals() and btn_gerar:
                     Analise esta imagem. O produto deve ser inserido neste cenário: {cenario}.
                     TAREFA 1: Crie um prompt curto em INGLÊS para gerar uma foto realista (Comece com 'PROMPT_IMG:').
                     TAREFA 2: Crie um anúncio persuasivo para Shopee.
-                    Formato: # Título, ## Descrição, ## Benefícios, ## Ficha Técnica
                     """
                     
                     response_text, modelo_usado = get_working_model_response(google_key, prompt_full, image)
-                    st.toast(f"Texto gerado com: {modelo_usado}", icon='🤖')
+                    st.toast(f"Texto ok! ({modelo_usado})", icon='📝')
                     
                     try:
                         prompt_img = response_text.split("PROMPT_IMG:")[1].split("\n")[0].strip()
@@ -179,35 +176,28 @@ if uploaded_file and 'btn_gerar' in locals() and btn_gerar:
                     st.error(f"Erro no Texto: {e}")
                     st.stop()
             
-            # --- FASE 2: IMAGEM (HUGGING FACE COM ESPERA) ---
+            # --- FASE 2: IMAGEM (NOVO MODELO RUNWAYML) ---
             st.divider()
             st.subheader(f"📸 {qtd_imagens} Variações")
             cols = st.columns(qtd_imagens)
             
             for i in range(qtd_imagens):
                 with cols[i]:
-                    with st.spinner(f"Criando foto {i+1}..."):
+                    with st.spinner(f"Foto {i+1}..."):
                         try:
-                            # Adiciona um pouco de "caos" na semente para variar as fotos
                             seed_variation = i * 1234 + int(time.time() % 100)
-                            
                             image_bytes = query_huggingface({
                                 "inputs": prompt_img, 
                                 "parameters": {
                                     "seed": seed_variation, 
-                                    "negative_prompt": "blurry, bad art, distorted, ugly, watermark, text"
+                                    "negative_prompt": "blurry, bad art, watermark"
                                 }
                             }, hf_key)
                             
-                            # Tenta abrir a imagem. Se falhar, mostra o erro que veio.
-                            try:
-                                generated_image = Image.open(io.BytesIO(image_bytes))
-                                st.image(generated_image, use_column_width=True)
-                            except:
-                                st.error("Erro ao processar imagem.")
-                                st.code(image_bytes) # Mostra o erro técnico se não for imagem
+                            generated_image = Image.open(io.BytesIO(image_bytes))
+                            st.image(generated_image, use_column_width=True)
                                 
                         except Exception as e:
-                            st.warning(f"Falha na imagem {i+1}: {e}")
+                            st.warning(f"Falha na imagem {i+1}. Tente novamente.")
             
-            st.success("Processo Finalizado!")
+            st.success("Sucesso Final!")
