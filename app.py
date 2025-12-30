@@ -1,7 +1,6 @@
 import streamlit as st
 import google.generativeai as genai
 from PIL import Image
-import random
 import pandas as pd
 
 # --- 1. CONFIGURAÇÃO DA PÁGINA ---
@@ -29,6 +28,15 @@ st.markdown("""
         color: #555;
         font-size: 0.95rem;
         margin-top: 5px;
+    }
+    .prompt-box {
+        background-color: #262730;
+        color: #ffffff;
+        padding: 15px;
+        border-radius: 5px;
+        border: 1px solid #4e4e4e;
+        font-family: monospace;
+        margin-top: 10px;
     }
     .metric-card {
         background-color: #e0f7fa;
@@ -58,70 +66,55 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# --- 4. CÉREBRO DA IA (GOOGLE) ---
+# --- 4. FUNÇÃO DE INTELIGÊNCIA (GOOGLE) ---
 def get_ai_strategy(api_key, image, cenario):
     genai.configure(api_key=api_key)
     
-    # LISTAS DE VARIAÇÃO ALEATÓRIA (O Segredo do Dinamismo)
-    iluminacoes = [
-        "Cinematic Volumetric Lighting (God Rays)",
-        "Soft Studio Lighting (High Key)",
-        "Moody Dark Lighting (Low Key)",
-        "Golden Hour Natural Sunlight",
-        "Neon Cyberpunk Rim Lights",
-        "Dramatic Chiaroscuro"
-    ]
-    
-    angulos = [
-        "Low Angle (Hero View)",
-        "Eye Level (Product Focus)",
-        "Top Down (Flat Lay)",
-        "Dutch Angle (Dynamic)",
-        "Macro Close-up (Texture Focus)"
-    ]
-    
-    # Sorteia a direção de arte da vez
-    luz_sorteada = random.choice(iluminacoes)
-    angulo_sorteado = random.choice(angulos)
-    
-    # Lista de modelos (Tenta o mais inteligente primeiro)
-    modelos = ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-pro"]
+    # Lista de modelos para tentar
+    modelos = ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-1.5-pro", "gemini-pro"]
     
     prompt_sistema = f"""
-    Você é um Engenheiro de Prompt Sênior (Expert em Midjourney v6 e Flux).
-    Analise esta imagem do produto.
+    Você é um especialista em E-commerce e um Engenheiro de Prompt Sênior para Midjourney e Flux.
+    Analise esta imagem do produto. O objetivo é vender este produto na Shopee.
     
-    O produto deve ser inserido neste cenário: {cenario}.
+    O produto deve ser imaginado neste cenário: {cenario}.
     
-    DIREÇÃO DE ARTE OBRIGATÓRIA PARA O PROMPT:
-    - Iluminação: {luz_sorteada}
-    - Ângulo: {angulo_sorteado}
-    
-    GERE DUAS SAÍDAS:
+    GERE DUAS SAÍDAS DISTINTAS:
     
     SAÍDA 1: COPY SHOPEE
-    - Título SEO e Descrição AIDA curta.
+    - Título SEO (com ícones, max 60 chars)
+    - Descrição AIDA (Atenção, Interesse, Desejo, Ação) curta e persuasiva.
+    - 5 Benefícios em bullets.
     
-    SAÍDA 2: PROMPT MASTER DINÂMICO (Em Inglês)
-    Crie um prompt visualmente rico.
-    IMPORTANTE: No final do prompt, adicione parâmetros que forcem variação mas mantenham a qualidade.
-    Estrutura:
-    [SUBJECT: Detailed description of the product from image] + 
-    [ENVIRONMENT: {cenario}, detailed texture, background elements] + 
-    [TECH: {luz_sorteada}, {angulo_sorteado}, 8k, photorealistic, Unreal Engine 5] +
-    [PARAMETERS: --chaos 15 --stylize 250 --v 6.0]
+    SAÍDA 2: PROMPT MASTER DE IMAGEM (Em Inglês)
+    Escreva um prompt altamente detalhado para gerar uma foto publicitária premiada deste produto.
+    Estrutura do Prompt:
+    [Sujeito Principal Detalhado] + [Ambiente/Cenário] + [Iluminação de Estúdio/Cinemática] + [Detalhes da Câmera] + [Estilo: Photorealistic, 8k, Unreal Engine 5 render].
+    Não use frases como "Generate an image". Comece direto com a descrição visual.
+    Use palavras-chave como: "hyper-detailed", "soft lighting", "bokeh", "product photography", "award winning".
     
-    Separe as saídas com: ---DIVISOR---
+    Separe as saídas com a tag: ---DIVISOR---
     """
     
     for model_name in modelos:
         try:
             model = genai.GenerativeModel(model_name)
             response = model.generate_content([prompt_sistema, image])
-            return response.text, luz_sorteada, angulo_sorteado
+            return response.text
         except: continue
             
-    raise Exception("Erro de conexão com Google AI.")
+    # Fallback: Tenta listar da conta
+    try:
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                 try:
+                    model = genai.GenerativeModel(m.name)
+                    response = model.generate_content([prompt_sistema, image])
+                    return response.text
+                 except: continue
+    except: pass
+    
+    raise Exception("Erro de conexão com Google AI. Verifique sua chave.")
 
 # --- 5. BARRA LATERAL ---
 with st.sidebar:
@@ -135,26 +128,25 @@ with st.sidebar:
     st.divider()
     st.markdown("© 2025 **Ti Piantoni**")
 
-# --- 6. NAVEGAÇÃO (ABAS) ---
+# --- 6. NAVEGAÇÃO POR ABAS ---
 tab1, tab2 = st.tabs(["🎨 Estúdio Criativo (IA)", "🧮 Calculadora de Preço (R$)"])
 
-# ==================================================
-# ABA 1: ESTÚDIO CRIATIVO (Seu código original)
-# ==================================================
+# ==========================================
+# ABA 1: CRIAÇÃO DE CONTEÚDO (CÓDIGO ORIGINAL)
+# ==========================================
 with tab1:
-    st.header("Gerador de Prompts Dinâmicos")
+    st.header("Gerador de Estratégia & Prompts")
     
-    # Coloquei o seletor de cenário aqui dentro para organizar
-    cenario = st.selectbox("Cenário Base", [
-        "Fundo Infinito Branco", 
-        "Cozinha Gourmet Moderna",
-        "Banheiro de Luxo em Mármore", 
-        "Sala de Estar Aconchegante", 
-        "Ao Ar Livre / Natureza", 
-        "Mesa de Escritório Minimalista",
-        "Estúdio Neon High-Tech"
+    cenario = st.selectbox("Onde o produto será fotografado?", [
+        "Fundo Infinito Branco (E-commerce Padrão)", 
+        "Cozinha Gourmet Moderna (High End)",
+        "Banheiro de Luxo em Mármore (Spa Vibe)", 
+        "Sala de Estar Aconchegante (Lifestyle)", 
+        "Ao Ar Livre / Natureza (Golden Hour)", 
+        "Mesa de Escritório Minimalista (Productivity)",
+        "Estúdio Neon Cyberpunk (Gamer/Tech)"
     ])
-    st.caption("ℹ️ Cada clique gera um prompt com Luz e Ângulo diferentes automaticamente.")
+    st.info("💡 Dica: O prompt gerado aqui deve ser usado no Midjourney, Leonardo.ai ou Bing.")
 
     col1, col2 = st.columns([1, 1])
 
@@ -165,49 +157,42 @@ with tab1:
         if uploaded_file:
             image = Image.open(uploaded_file)
             st.image(image, caption="Referência", use_column_width=True)
-            btn_gerar = st.button("🎲 Gerar Prompt Dinâmico", type="primary", use_container_width=True)
+            btn_gerar = st.button("🚀 Gerar Estratégia + Prompt Master", type="primary", use_container_width=True)
 
-    # Lógica de processamento
     if uploaded_file and 'btn_gerar' in locals() and btn_gerar:
         if not google_key:
-            st.error("⚠️ Falta a chave do Google na barra lateral.")
+            st.error("⚠️ Você precisa colocar a chave do Google na barra lateral.")
         else:
             with col2:
-                st.subheader("2. Estratégia Gerada")
-                
-                with st.spinner("🧠 Sorteando direção de arte e criando prompt..."):
+                st.subheader("2. Estratégia IA")
+                with st.spinner("🧠 Analisando texturas, luz e mercado..."):
                     try:
-                        full_response, luz, angulo = get_ai_strategy(google_key, image, cenario)
+                        full_response = get_ai_strategy(google_key, image, cenario)
                         
                         if "---DIVISOR---" in full_response:
                             parts = full_response.split("---DIVISOR---")
                             copy_shopee = parts[0].strip()
-                            prompt_img = parts[1].strip().replace("SAÍDA 2: PROMPT MASTER DINÂMICO (Em Inglês)", "").strip()
+                            prompt_img = parts[1].strip().replace("SAÍDA 2: PROMPT MASTER DE IMAGEM (Em Inglês)", "").strip()
                         else:
                             copy_shopee = full_response
-                            prompt_img = "Erro na formatação. Tente novamente."
+                            prompt_img = "Erro ao separar o prompt."
 
-                        # Mostra a Copy
-                        with st.expander("📝 Ver Copy para Shopee", expanded=False):
-                            st.markdown(copy_shopee)
-                        
+                        # EXIBIÇÃO DA COPY
+                        st.markdown(copy_shopee)
                         st.divider()
                         
-                        # Mostra os detalhes sorteados
-                        st.caption(f"✨ Variação Automática: **{luz}** | **{angulo}**")
-                        
-                        st.subheader("🎨 Seu Prompt Mestre")
-                        st.markdown("Use este prompt no Midjourney, Flux ou Leonardo.ai:")
+                        # EXIBIÇÃO DO PROMPT
+                        st.subheader("🎨 Seu Prompt Gerador de Imagens")
+                        st.markdown("Copie o código abaixo e cole na sua IA de imagem preferida:")
                         st.code(prompt_img, language="text")
-                        
-                        st.success("Pronto! Copie e crie sua imagem.")
+                        st.success("Sucesso!")
                         
                     except Exception as e:
-                        st.error(f"Erro: {e}")
+                        st.error(f"Ocorreu um erro: {e}")
 
-# ==================================================
-# ABA 2: CALCULADORA DE PREÇO
-# ==================================================
+# ==========================================
+# ABA 2: CALCULADORA DE PRECIFICAÇÃO
+# ==========================================
 with tab2:
     st.header("🧮 Calculadora de Lucro Real (Shopee)")
     st.markdown("Descubra o **Preço de Venda** exato para garantir o lucro que você deseja.")
@@ -217,8 +202,8 @@ with tab2:
     with c_calc1:
         st.subheader("Custos & Metas")
         custo_produto = st.number_input("Custo do Produto (R$)", value=0.00, step=1.00, help="Quanto você paga no fornecedor?")
-        custo_extra = st.number_input("Embalagem/Impostos (R$)", value=2.00, step=0.50)
-        lucro_desejado = st.number_input("Lucro Desejado LIMPO (R$)", value=15.00, step=1.00)
+        custo_extra = st.number_input("Embalagem/Impostos (R$)", value=2.00, step=0.50, help="Caixa, fita, etiqueta, brinde.")
+        lucro_desejado = st.number_input("Lucro Desejado LIMPO (R$)", value=15.00, step=1.00, help="Quanto você quer no bolso?")
         
         st.divider()
         st.subheader("Taxas da Shopee")
@@ -229,22 +214,23 @@ with tab2:
         else:
             taxa_pct = 0.14 # 14%
             
-        taxa_fixa = 4.00 # Taxa fixa por item
-        st.caption(f"Taxa Shopee: {taxa_pct*100:.0f}% + R$ {taxa_fixa:.2f}")
+        taxa_fixa = 4.00 # Taxa fixa
+        st.caption(f"Taxa Shopee: {taxa_pct*100:.0f}% + R$ {taxa_fixa:.2f} por item.")
 
     with c_calc2:
         st.subheader("Resultado")
-        
-        # FÓRMULA DE MARKUP
         try:
+            # FÓRMULA DE MARKUP REVERSO
+            # Preço = (Custos + Lucro + TaxaFixa) / (1 - %Comissão)
             custo_total_base = custo_produto + custo_extra + lucro_desejado + taxa_fixa
             divisor = 1 - taxa_pct
             
             if divisor <= 0:
-                st.error("Erro: Taxas inviáveis.")
+                st.error("Erro: Taxas inviáveis (>100%).")
             else:
                 preco_venda = custo_total_base / divisor
                 
+                # Exibe o preço grande
                 st.markdown(f"""
                 <div class="metric-card">
                     <div class="metric-label">Venda na Shopee por:</div>
@@ -260,7 +246,7 @@ with tab2:
                 lucro_real = preco_venda - total_shopee - custos_totais
                 
                 df = pd.DataFrame({
-                    "Destino": ["Shopee (Taxas)", "Seus Custos", "Seu Lucro Real"],
+                    "Destino": ["Shopee (Comissão + Taxa)", "Seus Custos (Prod + Emb)", "Seu Lucro Real"],
                     "Valor (R$)": [f"R$ {total_shopee:.2f}", f"R$ {custos_totais:.2f}", f"R$ {lucro_real:.2f}"]
                 })
                 st.table(df)
