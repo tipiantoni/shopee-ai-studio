@@ -43,57 +43,72 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 4. FUNÇÕES DE IA ---
+
 def query_huggingface(payload, api_key):
+    """
+    Tenta conectar na API de imagem. Se o servidor estiver 'dormindo' (Erro 503),
+    ele espera o tempo solicitado e tenta de novo.
+    """
     API_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0"
     headers = {"Authorization": f"Bearer {api_key}"}
-    response = requests.post(API_URL, headers=headers, json=payload)
+    
+    # Tenta até 3 vezes
+    for tentativa in range(3):
+        response = requests.post(API_URL, headers=headers, json=payload)
+        
+        # Sucesso (200)
+        if response.status_code == 200:
+            return response.content
+        
+        # Servidor Carregando (503)
+        elif response.status_code == 503:
+            try:
+                dados = response.json()
+                tempo_estimado = dados.get('estimated_time', 15)
+                st.toast(f"💤 O servidor de imagem está acordando... Aguarde {tempo_estimado:.0f}s.", icon="⏳")
+                time.sleep(tempo_estimado)
+                continue # Tenta de novo
+            except:
+                break
+        
+        # Erro de Autorização (401)
+        elif response.status_code == 401:
+            raise Exception("Erro na Chave Hugging Face. Verifique se o Token tem permissão 'WRITE'.")
+            
+    # Se falhar após tentativas
+    response.raise_for_status()
     return response.content
 
 def get_working_model_response(api_key, prompt, image):
     """
-    FUNÇÃO DE AUTO-DESCOBERTA:
-    Em vez de adivinhar o modelo, pergunta para a API quais estão disponíveis
-    e usa o primeiro que funcionar.
+    Auto-Descoberta de modelo do Google (Texto)
     """
     genai.configure(api_key=api_key)
-    
     available_models = []
-    log_tentativas = []
 
-    # 1. Lista todos os modelos que a SUA chave consegue ver
     try:
+        # Lista modelos disponíveis
         for m in genai.list_models():
             if 'generateContent' in m.supported_generation_methods:
-                # Prioriza modelos Flash (mais rápidos/baratos) colocando no topo
-                if 'flash' in m.name:
+                if 'flash' in m.name: # Prioriza Flash
                     available_models.insert(0, m.name)
                 else:
                     available_models.append(m.name)
     except Exception as e:
-        raise Exception(f"Erro ao listar modelos da conta: {e}")
+        raise Exception(f"Erro ao listar modelos: {e}")
 
-    if not available_models:
-        raise Exception("Nenhum modelo disponível encontrado para esta API Key.")
-
-    # 2. Tenta usar os modelos da lista um por um
+    # Testa um por um
     for model_name in available_models:
         try:
-            # Pula modelos vision antigos que dão erro
-            if '1.0' in model_name or 'vision' in model_name:
-                continue
-                
+            if '1.0' in model_name or 'vision' in model_name: continue
+            
             model = genai.GenerativeModel(model_name)
             response = model.generate_content([prompt, image])
-            return response.text, model_name # SUCESSO!
-            
-        except Exception as e:
-            error_msg = str(e)
-            log_tentativas.append(f"{model_name}: {error_msg}")
-            # Se for erro de Cota (429), tenta o próximo. Se for 404, tenta o próximo.
+            return response.text, model_name
+        except:
             continue
             
-    # Se chegou aqui, nada funcionou
-    raise Exception(f"Falha em todos os modelos listados.\nDetalhes: {log_tentativas}")
+    raise Exception("Nenhum modelo do Google funcionou. Verifique sua chave API.")
 
 # --- 5. BARRA LATERAL ---
 with st.sidebar:
@@ -112,9 +127,6 @@ with st.sidebar:
         hf_key = st.text_input("Hugging Face Token", type="password")
 
     st.divider()
-    with st.expander("ℹ️ Info Técnica"):
-        st.info("Modo: Auto-Discovery (Detecta modelos da sua conta)")
-
     st.header("🎨 Estúdio Criativo")
     cenario = st.selectbox("Cenário", [
         "Fundo Infinito Branco", "Banheiro de Luxo", "Cozinha Moderna", 
@@ -143,25 +155,18 @@ if uploaded_file and 'btn_gerar' in locals() and btn_gerar:
         with col2:
             st.subheader("2. Resultado IA")
             
-            with st.spinner("🧠 Ti Piantoni AI: Buscando o melhor modelo disponível..."):
+            # --- FASE 1: TEXTO (GOOGLE) ---
+            with st.spinner("🧠 Ti Piantoni AI: Criando estratégia..."):
                 try:
                     prompt_full = f"""
                     Analise esta imagem. O produto deve ser inserido neste cenário: {cenario}.
-                    
                     TAREFA 1: Crie um prompt curto em INGLÊS para gerar uma foto realista (Comece com 'PROMPT_IMG:').
-                    
                     TAREFA 2: Crie um anúncio persuasivo para Shopee.
-                    Formato:
-                    # Título com Ícones
-                    ## Descrição (AIDA)
-                    ## Benefícios
-                    ## Ficha Técnica Visual
+                    Formato: # Título, ## Descrição, ## Benefícios, ## Ficha Técnica
                     """
                     
-                    # --- CHAMA A FUNÇÃO DE AUTO-DESCOBERTA ---
                     response_text, modelo_usado = get_working_model_response(google_key, prompt_full, image)
-                    
-                    st.toast(f"Conectado via: {modelo_usado}", icon='🤖')
+                    st.toast(f"Texto gerado com: {modelo_usado}", icon='🤖')
                     
                     try:
                         prompt_img = response_text.split("PROMPT_IMG:")[1].split("\n")[0].strip()
@@ -171,21 +176,38 @@ if uploaded_file and 'btn_gerar' in locals() and btn_gerar:
                     st.markdown(response_text.replace("PROMPT_IMG:", "**Prompt Visual:** "))
                     
                 except Exception as e:
-                    st.error(f"ERRO FATAL: Sua chave não tem acesso a nenhum modelo de geração. Erro: {e}")
+                    st.error(f"Erro no Texto: {e}")
                     st.stop()
             
-            # PARTE 2: IMAGEM
+            # --- FASE 2: IMAGEM (HUGGING FACE COM ESPERA) ---
             st.divider()
             st.subheader(f"📸 {qtd_imagens} Variações")
             cols = st.columns(qtd_imagens)
+            
             for i in range(qtd_imagens):
                 with cols[i]:
-                    try:
-                        image_bytes = query_huggingface({
-                            "inputs": prompt_img, 
-                            "parameters": {"seed": i*55, "negative_prompt": "blurry, bad art"}
-                        }, hf_key)
-                        st.image(Image.open(io.BytesIO(image_bytes)), use_column_width=True)
-                    except:
-                        st.caption("Erro ao gerar imagem.")
-            st.success("Sucesso!")
+                    with st.spinner(f"Criando foto {i+1}..."):
+                        try:
+                            # Adiciona um pouco de "caos" na semente para variar as fotos
+                            seed_variation = i * 1234 + int(time.time() % 100)
+                            
+                            image_bytes = query_huggingface({
+                                "inputs": prompt_img, 
+                                "parameters": {
+                                    "seed": seed_variation, 
+                                    "negative_prompt": "blurry, bad art, distorted, ugly, watermark, text"
+                                }
+                            }, hf_key)
+                            
+                            # Tenta abrir a imagem. Se falhar, mostra o erro que veio.
+                            try:
+                                generated_image = Image.open(io.BytesIO(image_bytes))
+                                st.image(generated_image, use_column_width=True)
+                            except:
+                                st.error("Erro ao processar imagem.")
+                                st.code(image_bytes) # Mostra o erro técnico se não for imagem
+                                
+                        except Exception as e:
+                            st.warning(f"Falha na imagem {i+1}: {e}")
+            
+            st.success("Processo Finalizado!")
