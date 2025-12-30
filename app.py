@@ -30,14 +30,6 @@ st.markdown("""
         font-size: 0.95rem;
         margin-top: 5px;
     }
-    .step-card {
-        background-color: #e8f4f8;
-        padding: 10px;
-        border-radius: 5px;
-        margin-bottom: 5px;
-        font-weight: bold;
-        color: #0e1117;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -53,16 +45,10 @@ st.markdown("""
 with st.expander("📚 CLIQUE AQUI: Manual de Uso Passo a Passo"):
     st.markdown("""
     ### Como transformar produtos em vendas:
-    
-    1.  **📸 O Upload:** Tire um print ou baixe a foto do produto do fornecedor (pode ser fundo branco simples). Arraste para a área de upload.
-    2.  **⚙️ A Configuração:**
-        * Na barra lateral, escolha o **Cenário** que mais valoriza o produto (ex: *Cozinha Moderna* para utensílios).
-        * Defina quantas **Variações de Imagem** você quer (recomendado: 2).
-    3.  **🚀 A Mágica:** Clique no botão azul **"Gerar Copy + Fotos"**.
-    4.  **💰 O Lucro:**
-        * A IA vai escrever o Título e a Descrição Persuasiva.
-        * A IA vai desenhar novas fotos lifestyle do produto.
-        * **Copie tudo e cadastre na Shopee!**
+    1. **📸 O Upload:** Tire um print ou baixe a foto do produto.
+    2. **⚙️ A Configuração:** Escolha o Cenário e Quantidade de fotos.
+    3. **🚀 A Mágica:** Clique em "Gerar".
+    4. **💰 O Lucro:** Copie o texto e as imagens novas para a Shopee.
     """)
 
 st.divider()
@@ -78,7 +64,6 @@ def query_huggingface(payload, api_key):
 with st.sidebar:
     st.header("🔐 Chaves de Acesso")
     
-    # Verifica Secrets ou pede manual
     if "GOOGLE_API_KEY" in st.secrets:
         google_key = st.secrets["GOOGLE_API_KEY"]
         st.success("Google AI Conectado", icon="✅")
@@ -134,7 +119,8 @@ if uploaded_file and 'btn_gerar' in locals() and btn_gerar:
             with st.spinner("🧠 Ti Piantoni AI: Criando estratégia de vendas..."):
                 try:
                     genai.configure(api_key=google_key)
-                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    # CORREÇÃO AQUI: Mudamos para 'gemini-1.5-flash-latest'
+                    model = genai.GenerativeModel('gemini-1.5-flash-latest')
                     
                     prompt_full = f"""
                     Analise esta imagem. O produto deve ser inserido neste cenário: {cenario}.
@@ -146,7 +132,6 @@ if uploaded_file and 'btn_gerar' in locals() and btn_gerar:
                     
                     response_text = model.generate_content([prompt_full, image]).text
                     
-                    # Extrai o prompt da imagem
                     try:
                         prompt_img = response_text.split("PROMPT_IMG:")[1].split("\n")[0].strip()
                     except:
@@ -155,6 +140,7 @@ if uploaded_file and 'btn_gerar' in locals() and btn_gerar:
                     st.markdown(response_text.replace("PROMPT_IMG:", "**Prompt Visual Interno:** "))
                     
                 except Exception as e:
+                    # Se ainda der erro, mostramos uma mensagem mais clara
                     st.error(f"Erro na análise de texto: {e}")
                     st.stop()
             
@@ -172,7 +158,7 @@ if uploaded_file and 'btn_gerar' in locals() and btn_gerar:
                                 "inputs": prompt_img,
                                 "parameters": {
                                     "negative_prompt": "blurry, low quality, distorted, watermark, text, bad anatomy, deformed, ugly",
-                                    "seed": i * 9999 # Garante variação
+                                    "seed": i * 9999 
                                 }
                             }, hf_key)
                             
@@ -180,6 +166,6 @@ if uploaded_file and 'btn_gerar' in locals() and btn_gerar:
                             st.image(generated_image, caption=f"Opção {i+1}", use_column_width=True)
                             
                         except Exception as e:
-                            st.warning("Servidor de imagem ocupado. Tente novamente em instantes.")
+                            st.warning("Servidor de imagem ocupado. Tente novamente.")
             
             st.success("Análise concluída com sucesso!")
