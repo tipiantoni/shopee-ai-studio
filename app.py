@@ -7,7 +7,7 @@ import io
 # --- 1. CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Shopee AI Studio | Ti Piantoni", page_icon="🚀", layout="wide")
 
-# --- 2. ESTILO CSS (BRANDING TI PIANTONI) ---
+# --- 2. ESTILO CSS (BRANDING) ---
 st.markdown("""
 <style>
     .branding-box {
@@ -30,6 +30,14 @@ st.markdown("""
         font-size: 0.95rem;
         margin-top: 5px;
     }
+    .debug-box {
+        font-size: 0.8em;
+        color: #666;
+        background: #eee;
+        padding: 5px;
+        border-radius: 4px;
+        margin-top: 10px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -41,31 +49,18 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# --- 4. FAQ / MANUAL INTEGRADO ---
-with st.expander("📚 CLIQUE AQUI: Manual de Uso Passo a Passo"):
-    st.markdown("""
-    ### Como transformar produtos em vendas:
-    1. **📸 O Upload:** Tire um print ou baixe a foto do produto.
-    2. **⚙️ A Configuração:** Escolha o Cenário e Quantidade de fotos.
-    3. **🚀 A Mágica:** Clique em "Gerar".
-    4. **💰 O Lucro:** Copie o texto e as imagens novas para a Shopee.
-    """)
-
-st.divider()
-
-# --- 5. FUNÇÕES DE IA ---
+# --- FUNÇÕES AUXILIARES ---
 def query_huggingface(payload, api_key):
-    # Modelo Stable Diffusion XL (Alta Qualidade)
     API_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0"
     headers = {"Authorization": f"Bearer {api_key}"}
     response = requests.post(API_URL, headers=headers, json=payload)
     return response.content
 
-# --- 6. BARRA LATERAL (CONFIGURAÇÕES) ---
+# --- 4. BARRA LATERAL (DIAGNÓSTICO E CONFIG) ---
 with st.sidebar:
     st.header("🔐 Chaves de Acesso")
     
-    # Verifica Secrets ou pede manual
+    # 1. PEGA CHAVES
     if "GOOGLE_API_KEY" in st.secrets:
         google_key = st.secrets["GOOGLE_API_KEY"]
         st.success("Google AI Conectado", icon="✅")
@@ -78,59 +73,69 @@ with st.sidebar:
     else:
         hf_key = st.text_input("Hugging Face Token", type="password")
 
+    # 2. ÁREA DE DIAGNÓSTICO (PARA VER SE ATUALIZOU)
+    st.divider()
+    with st.expander("🛠️ Diagnóstico Técnico (Debug)"):
+        st.write(f"**Versão da Lib Google:** `{genai.__version__}`")
+        if google_key:
+            try:
+                genai.configure(api_key=google_key)
+                st.write("**Modelos Disponíveis:**")
+                for m in genai.list_models():
+                    if 'generateContent' in m.supported_generation_methods:
+                        st.code(m.name.replace("models/", ""))
+            except Exception as e:
+                st.error(f"Erro de chave: {e}")
+        else:
+            st.warning("Coloque a chave para listar modelos.")
+
     st.divider()
     st.header("🎨 Estúdio Criativo")
-    
-    cenario = st.selectbox("Onde o produto deve aparecer?", [
-        "Fundo Infinito Branco (Studio)",
-        "Banheiro de Luxo (Luxury Bathroom)",
-        "Cozinha Moderna (Modern Kitchen)",
-        "Sala de Estar Aconchegante (Living Room)",
-        "Ao Ar Livre/Natureza (Outdoor)",
-        "Mesa de Escritório Minimalista (Office)",
-        "Academia / Fitness (Gym)"
+    cenario = st.selectbox("Cenário", [
+        "Fundo Infinito Branco", "Banheiro de Luxo", "Cozinha Moderna", 
+        "Sala de Estar", "Ao Ar Livre", "Escritório Minimalista"
     ])
-    
-    qtd_imagens = st.slider("Quantidade de Fotos", 1, 4, 2)
-    st.caption("Nota: Mais fotos levam mais tempo para gerar.")
-    
-    st.divider()
+    qtd_imagens = st.slider("Qtd. Fotos", 1, 4, 2)
     st.markdown("© 2025 **Ti Piantoni**")
 
-# --- 7. INTERFACE PRINCIPAL ---
+# --- 5. INTERFACE PRINCIPAL ---
 col1, col2 = st.columns([1, 1.2])
 
 with col1:
     st.subheader("1. Produto Original")
-    uploaded_file = st.file_uploader("Faça upload da foto aqui", type=["jpg", "png", "jpeg"])
+    uploaded_file = st.file_uploader("Upload da Foto", type=["jpg", "png", "jpeg"])
     
     if uploaded_file:
         image = Image.open(uploaded_file)
-        st.image(image, caption="Foto do Fornecedor", use_column_width=True)
+        st.image(image, caption="Sua Foto", use_column_width=True)
         btn_gerar = st.button(f"🚀 Gerar Copy + {qtd_imagens} Fotos", type="primary", use_container_width=True)
 
-# --- 8. LÓGICA DE PROCESSAMENTO ---
+# --- 6. LÓGICA (COM TRATAMENTO DE ERRO DE MODELO) ---
 if uploaded_file and 'btn_gerar' in locals() and btn_gerar:
     if not google_key or not hf_key:
-        st.error("⚠️ ERRO: Configure as chaves de API na barra lateral ou nos Secrets.")
+        st.error("⚠️ Configure as chaves de API primeiro.")
     else:
         with col2:
             st.subheader("2. Resultado IA")
             
-            # PARTE 1: TEXTO (GOOGLE)
-            with st.spinner("🧠 Ti Piantoni AI: Criando estratégia de vendas..."):
+            with st.spinner("🧠 Ti Piantoni AI: Analisando..."):
                 try:
                     genai.configure(api_key=google_key)
                     
-                    # MODELO PADRÃO (Funciona se o requirements.txt estiver >=0.7.2)
-                    model = genai.GenerativeModel('gemini-1.5-flash')
-                    
+                    # TENTATIVA 1: Modelo Flash 1.5 (Mais rápido)
+                    try:
+                        model = genai.GenerativeModel('gemini-1.5-flash')
+                        # Teste rápido de conexão
+                        response = model.generate_content("Teste")
+                    except:
+                        # TENTATIVA 2: Fallback para Pro Vision (Antigo mas funciona) se o 1.5 falhar
+                        st.warning("⚠️ Usando modelo de backup (gemini-pro-vision)...")
+                        model = genai.GenerativeModel('gemini-pro-vision')
+
                     prompt_full = f"""
                     Analise esta imagem. O produto deve ser inserido neste cenário: {cenario}.
-                    
-                    TAREFA 1: Crie um prompt descritivo em INGLÊS para gerar uma foto realista deste produto neste cenário. Comece com 'PROMPT_IMG:'.
-                    
-                    TAREFA 2: Crie um anúncio para Shopee (Título SEO + Descrição AIDA + Benefícios). Use tom persuasivo.
+                    TAREFA 1: Crie um prompt curto em INGLÊS para gerar uma foto realista (Comece com 'PROMPT_IMG:').
+                    TAREFA 2: Crie um anúncio persuasivo para Shopee (Título, Descrição, Benefícios).
                     """
                     
                     response_text = model.generate_content([prompt_full, image]).text
@@ -138,36 +143,26 @@ if uploaded_file and 'btn_gerar' in locals() and btn_gerar:
                     try:
                         prompt_img = response_text.split("PROMPT_IMG:")[1].split("\n")[0].strip()
                     except:
-                        prompt_img = f"Professional photo of the product in a {cenario}, 4k, realistic"
+                        prompt_img = f"Professional photo of product in {cenario}, 4k"
                     
-                    st.markdown(response_text.replace("PROMPT_IMG:", "**Prompt Visual Interno:** "))
+                    st.markdown(response_text.replace("PROMPT_IMG:", "**Prompt Visual:** "))
                     
                 except Exception as e:
-                    st.error(f"Erro na análise de texto: {e}")
+                    st.error(f"Erro fatal no Google AI: {e}")
                     st.stop()
             
-            # PARTE 2: IMAGEM (HUGGING FACE)
+            # PARTE 2: IMAGEM
             st.divider()
-            st.subheader(f"📸 {qtd_imagens} Novas Fotos Geradas")
-            
+            st.subheader(f"📸 {qtd_imagens} Variações")
             cols = st.columns(qtd_imagens)
-            
             for i in range(qtd_imagens):
                 with cols[i]:
-                    with st.spinner(f"Renderizando foto {i+1}..."):
-                        try:
-                            image_bytes = query_huggingface({
-                                "inputs": prompt_img,
-                                "parameters": {
-                                    "negative_prompt": "blurry, low quality, distorted, watermark, text, bad anatomy, deformed, ugly",
-                                    "seed": i * 9999 
-                                }
-                            }, hf_key)
-                            
-                            generated_image = Image.open(io.BytesIO(image_bytes))
-                            st.image(generated_image, caption=f"Opção {i+1}", use_column_width=True)
-                            
-                        except Exception as e:
-                            st.warning("Servidor de imagem ocupado. Tente novamente.")
-            
-            st.success("Análise concluída com sucesso!")
+                    try:
+                        image_bytes = query_huggingface({
+                            "inputs": prompt_img, 
+                            "parameters": {"seed": i*55, "negative_prompt": "blurry, bad art"}
+                        }, hf_key)
+                        st.image(Image.open(io.BytesIO(image_bytes)), use_column_width=True)
+                    except:
+                        st.caption("Erro na imagem.")
+            st.success("Sucesso!")
