@@ -115,12 +115,13 @@ if uploaded_file and 'btn_gerar' in locals() and btn_gerar:
         with col2:
             st.subheader("2. Resultado IA")
             
-            # PARTE 1: TEXTO (GOOGLE)
+            # PARTE 1: TEXTO (GOOGLE - PLANO B: PRO)
             with st.spinner("🧠 Ti Piantoni AI: Criando estratégia de vendas..."):
                 try:
                     genai.configure(api_key=google_key)
-                    # CORREÇÃO AQUI: Mudamos para 'gemini-1.5-flash-latest'
-                    model = genai.GenerativeModel('gemini-1.5-flash-latest')
+                    
+                    # --- AQUI ESTÁ O PLANO B: GEMINI 1.5 PRO ---
+                    model = genai.GenerativeModel('gemini-1.5-pro') 
                     
                     prompt_full = f"""
                     Analise esta imagem. O produto deve ser inserido neste cenário: {cenario}.
@@ -140,7 +141,6 @@ if uploaded_file and 'btn_gerar' in locals() and btn_gerar:
                     st.markdown(response_text.replace("PROMPT_IMG:", "**Prompt Visual Interno:** "))
                     
                 except Exception as e:
-                    # Se ainda der erro, mostramos uma mensagem mais clara
                     st.error(f"Erro na análise de texto: {e}")
                     st.stop()
             
