@@ -42,48 +42,58 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# --- 4. FUNÇÕES DE IA (COM SISTEMA ANTI-ERRO) ---
+# --- 4. FUNÇÕES DE IA ---
 def query_huggingface(payload, api_key):
     API_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0"
     headers = {"Authorization": f"Bearer {api_key}"}
     response = requests.post(API_URL, headers=headers, json=payload)
     return response.content
 
-def try_generate_content(api_key, prompt, image):
+def get_working_model_response(api_key, prompt, image):
     """
-    Tenta conectar em VÁRIOS modelos diferentes até um funcionar.
-    Se o 1.5 falhar, tenta o Pro. Se falhar, tenta o 1.0 antigo.
+    FUNÇÃO DE AUTO-DESCOBERTA:
+    Em vez de adivinhar o modelo, pergunta para a API quais estão disponíveis
+    e usa o primeiro que funcionar.
     """
     genai.configure(api_key=api_key)
     
-    # LISTA DE MODELOS PARA TENTAR (Do melhor para o mais compatível)
-    modelos_para_testar = [
-        'gemini-1.5-flash',          # O ideal (Rápido)
-        'gemini-1.5-flash-001',      # Versão específica
-        'gemini-1.5-pro',            # Mais potente
-        'gemini-1.0-pro-vision-latest', # Versão anterior (Estável)
-        'gemini-pro-vision'          # O tanque de guerra antigo
-    ]
-    
-    erros_log = []
+    available_models = []
+    log_tentativas = []
 
-    for nome_modelo in modelos_para_testar:
+    # 1. Lista todos os modelos que a SUA chave consegue ver
+    try:
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                # Prioriza modelos Flash (mais rápidos/baratos) colocando no topo
+                if 'flash' in m.name:
+                    available_models.insert(0, m.name)
+                else:
+                    available_models.append(m.name)
+    except Exception as e:
+        raise Exception(f"Erro ao listar modelos da conta: {e}")
+
+    if not available_models:
+        raise Exception("Nenhum modelo disponível encontrado para esta API Key.")
+
+    # 2. Tenta usar os modelos da lista um por um
+    for model_name in available_models:
         try:
-            # Tenta configurar o modelo atual
-            model = genai.GenerativeModel(nome_modelo)
-            
-            # Tenta gerar
+            # Pula modelos vision antigos que dão erro
+            if '1.0' in model_name or 'vision' in model_name:
+                continue
+                
+            model = genai.GenerativeModel(model_name)
             response = model.generate_content([prompt, image])
-            return response.text, nome_modelo # Sucesso! Retorna texto e nome do modelo que funcionou
+            return response.text, model_name # SUCESSO!
             
         except Exception as e:
-            # Se der erro, guarda no log e tenta o próximo
-            erros_log.append(f"{nome_modelo}: {str(e)}")
+            error_msg = str(e)
+            log_tentativas.append(f"{model_name}: {error_msg}")
+            # Se for erro de Cota (429), tenta o próximo. Se for 404, tenta o próximo.
             continue
-    
-    # Se todos falharem:
-    error_msg = "\n".join(erros_log)
-    raise Exception(f"Todos os modelos falharam. Detalhes:\n{error_msg}")
+            
+    # Se chegou aqui, nada funcionou
+    raise Exception(f"Falha em todos os modelos listados.\nDetalhes: {log_tentativas}")
 
 # --- 5. BARRA LATERAL ---
 with st.sidebar:
@@ -103,8 +113,7 @@ with st.sidebar:
 
     st.divider()
     with st.expander("ℹ️ Info Técnica"):
-        st.write(f"Lib Google: `{genai.__version__}`")
-        st.info("Modo: Seleção Automática de Modelo")
+        st.info("Modo: Auto-Discovery (Detecta modelos da sua conta)")
 
     st.header("🎨 Estúdio Criativo")
     cenario = st.selectbox("Cenário", [
@@ -134,7 +143,7 @@ if uploaded_file and 'btn_gerar' in locals() and btn_gerar:
         with col2:
             st.subheader("2. Resultado IA")
             
-            with st.spinner("🧠 Ti Piantoni AI: Testando modelos de IA disponíveis..."):
+            with st.spinner("🧠 Ti Piantoni AI: Buscando o melhor modelo disponível..."):
                 try:
                     prompt_full = f"""
                     Analise esta imagem. O produto deve ser inserido neste cenário: {cenario}.
@@ -149,12 +158,10 @@ if uploaded_file and 'btn_gerar' in locals() and btn_gerar:
                     ## Ficha Técnica Visual
                     """
                     
-                    # --- AQUI ESTÁ A MUDANÇA ---
-                    # Chama a função que testa vários modelos até um funcionar
-                    response_text, modelo_usado = try_generate_content(google_key, prompt_full, image)
+                    # --- CHAMA A FUNÇÃO DE AUTO-DESCOBERTA ---
+                    response_text, modelo_usado = get_working_model_response(google_key, prompt_full, image)
                     
-                    # Mostra qual modelo salvou o dia
-                    st.toast(f"Sucesso! Usando modelo: {modelo_usado}", icon='🤖')
+                    st.toast(f"Conectado via: {modelo_usado}", icon='🤖')
                     
                     try:
                         prompt_img = response_text.split("PROMPT_IMG:")[1].split("\n")[0].strip()
@@ -164,7 +171,7 @@ if uploaded_file and 'btn_gerar' in locals() and btn_gerar:
                     st.markdown(response_text.replace("PROMPT_IMG:", "**Prompt Visual:** "))
                     
                 except Exception as e:
-                    st.error(f"ERRO CRÍTICO: Não foi possível conectar com nenhum modelo do Google. Verifique sua chave API.\nErro: {e}")
+                    st.error(f"ERRO FATAL: Sua chave não tem acesso a nenhum modelo de geração. Erro: {e}")
                     st.stop()
             
             # PARTE 2: IMAGEM
