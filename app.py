@@ -48,22 +48,38 @@ st.markdown("""
 
 def generate_image_pollinations(prompt):
     """
-    Gera imagem usando Pollinations.ai (Não precisa de API Key).
+    Gera imagem via Pollinations com tratamento de URL longa.
     """
-    # Codifica o prompt para URL
-    prompt_encoded = urllib.parse.quote(prompt)
+    # 1. Limpa e encurta o prompt para não quebrar a URL (Max 80 chars)
+    prompt_clean = prompt.replace("\n", " ").replace('"', "").strip()
+    if len(prompt_clean) > 80:
+        prompt_clean = prompt_clean[:80]
+    
+    # Adiciona palavras-chave de qualidade
+    final_prompt = f"{prompt_clean}, hyperrealistic, 8k, product photography"
+    prompt_encoded = urllib.parse.quote(final_prompt)
+    
     seed = random.randint(1, 99999)
     
-    # URL Mágica (Modelo Flux ou SDXL)
-    image_url = f"https://pollinations.ai/p/{prompt_encoded}?width=1024&height=1024&seed={seed}&model=flux"
+    # URL Direta
+    image_url = f"https://pollinations.ai/p/{prompt_encoded}?width=1024&height=1024&seed={seed}&nologo=true&model=flux"
     
-    # Baixa a imagem gerada
-    response = requests.get(image_url, timeout=30)
+    # Headers para fingir ser um browser (evita bloqueio)
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
+    
+    # Tenta baixar
+    response = requests.get(image_url, headers=headers, timeout=15)
     
     if response.status_code == 200:
-        return response.content
+        # Verifica se é realmente uma imagem
+        if "image" in response.headers.get("content-type", ""):
+            return response.content
+        else:
+            raise Exception("Servidor retornou texto em vez de imagem.")
     else:
-        raise Exception(f"Erro no servidor Pollinations: {response.status_code}")
+        raise Exception(f"Erro {response.status_code}")
 
 def get_text_ai_response(api_key, prompt, image):
     """
@@ -82,7 +98,7 @@ def get_text_ai_response(api_key, prompt, image):
         except:
             continue
             
-    # Se falhar nos nomes padrão, tenta listar da conta
+    # Fallback: tenta listar da conta
     try:
         for m in genai.list_models():
             if 'generateContent' in m.supported_generation_methods:
@@ -95,7 +111,7 @@ def get_text_ai_response(api_key, prompt, image):
     except:
         pass
 
-    raise Exception("Erro no Google AI. Verifique a chave API ou a Cota.")
+    raise Exception("Nenhum modelo do Google funcionou. Verifique sua chave API.")
 
 # --- 5. BARRA LATERAL ---
 with st.sidebar:
@@ -107,8 +123,7 @@ with st.sidebar:
     else:
         google_key = st.text_input("Google API Key", type="password")
 
-    # REMOVI O CAMPO DA HUGGING FACE POIS NÃO PRECISA MAIS!
-    st.success("Gerador de Imagem: Pollinations (Grátis/Sem Chave)", icon="🎨")
+    st.success("Gerador de Imagem: Pollinations (Ativo)", icon="🎨")
 
     st.divider()
     st.header("🎨 Estúdio Criativo")
@@ -144,7 +159,7 @@ if uploaded_file and 'btn_gerar' in locals() and btn_gerar:
                 try:
                     prompt_full = f"""
                     Analise esta imagem. O produto deve ser inserido neste cenário: {cenario}.
-                    TAREFA 1: Crie um prompt curto em INGLÊS para gerar uma foto realista (Comece com 'PROMPT_IMG:').
+                    TAREFA 1: Crie um prompt MUITO CURTO (max 10 palavras) em INGLÊS apenas descrevendo o objeto principal para gerar uma foto. Comece com 'PROMPT_IMG:'.
                     TAREFA 2: Crie um anúncio persuasivo para Shopee.
                     """
                     
@@ -154,7 +169,7 @@ if uploaded_file and 'btn_gerar' in locals() and btn_gerar:
                     try:
                         prompt_img = response_text.split("PROMPT_IMG:")[1].split("\n")[0].strip()
                     except:
-                        prompt_img = f"High quality photo of product in {cenario}, 4k"
+                        prompt_img = f"product in {cenario}"
                     
                     st.markdown(response_text.replace("PROMPT_IMG:", "**Prompt Visual:** "))
                     
@@ -162,7 +177,7 @@ if uploaded_file and 'btn_gerar' in locals() and btn_gerar:
                     st.error(f"Erro Texto: {e}")
                     st.stop()
             
-            # --- FASE 2: IMAGEM (POLLINATIONS - SEM CHAVE) ---
+            # --- FASE 2: IMAGEM (POLLINATIONS SEGURO) ---
             st.divider()
             st.subheader(f"📸 {qtd_imagens} Variações")
             cols = st.columns(qtd_imagens)
@@ -171,14 +186,17 @@ if uploaded_file and 'btn_gerar' in locals() and btn_gerar:
                 with cols[i]:
                     with st.spinner(f"Criando foto {i+1}..."):
                         try:
-                            # Adiciona detalhes para melhorar a qualidade
-                            final_prompt = f"{prompt_img}, photorealistic, 8k, highly detailed, product photography"
+                            # Chama a função nova que corta o prompt se for grande
+                            img_bytes = generate_image_pollinations(prompt_img)
                             
-                            img_bytes = generate_image_pollinations(final_prompt)
-                            
-                            st.image(Image.open(io.BytesIO(img_bytes)), use_column_width=True)
+                            # Tenta converter
+                            try:
+                                generated_image = Image.open(io.BytesIO(img_bytes))
+                                st.image(generated_image, use_column_width=True)
+                            except Exception as e:
+                                st.warning("Imagem corrompida. Tente gerar novamente.")
                                 
                         except Exception as e:
-                            st.warning(f"Erro foto {i+1}: {e}")
+                            st.warning(f"Erro foto {i+1}: URL muito longa ou servidor ocupado.")
             
             st.success("Sucesso! Pode cadastrar na Shopee.")
