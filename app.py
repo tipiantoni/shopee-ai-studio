@@ -55,6 +55,7 @@ st.divider()
 
 # --- 5. FUNÇÕES DE IA ---
 def query_huggingface(payload, api_key):
+    # Modelo Stable Diffusion XL (Alta Qualidade)
     API_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0"
     headers = {"Authorization": f"Bearer {api_key}"}
     response = requests.post(API_URL, headers=headers, json=payload)
@@ -64,6 +65,7 @@ def query_huggingface(payload, api_key):
 with st.sidebar:
     st.header("🔐 Chaves de Acesso")
     
+    # Verifica Secrets ou pede manual
     if "GOOGLE_API_KEY" in st.secrets:
         google_key = st.secrets["GOOGLE_API_KEY"]
         st.success("Google AI Conectado", icon="✅")
@@ -115,13 +117,13 @@ if uploaded_file and 'btn_gerar' in locals() and btn_gerar:
         with col2:
             st.subheader("2. Resultado IA")
             
-            # PARTE 1: TEXTO (GOOGLE - PLANO B: PRO)
+            # PARTE 1: TEXTO (GOOGLE)
             with st.spinner("🧠 Ti Piantoni AI: Criando estratégia de vendas..."):
                 try:
                     genai.configure(api_key=google_key)
                     
-                    # --- AQUI ESTÁ O PLANO B: GEMINI 1.5 PRO ---
-                    model = genai.GenerativeModel('gemini-1.5-pro') 
+                    # MODELO PADRÃO (Funciona se o requirements.txt estiver >=0.7.2)
+                    model = genai.GenerativeModel('gemini-1.5-flash')
                     
                     prompt_full = f"""
                     Analise esta imagem. O produto deve ser inserido neste cenário: {cenario}.
