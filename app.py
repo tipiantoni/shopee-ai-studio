@@ -43,6 +43,7 @@ st.markdown("""
 
 # --- FUNÇÕES AUXILIARES ---
 def query_huggingface(payload, api_key):
+    # API de Imagem (Stable Diffusion)
     API_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0"
     headers = {"Authorization": f"Bearer {api_key}"}
     response = requests.post(API_URL, headers=headers, json=payload)
@@ -66,10 +67,10 @@ with st.sidebar:
 
     st.divider()
     
-    # Diagnóstico Rápido (Mantive caso precise ver de novo)
+    # Diagnóstico Rápido (Mantive para segurança)
     with st.expander("ℹ️ Status do Sistema"):
         st.write(f"Lib Google: `{genai.__version__}`")
-        st.caption("Usando modelo: gemini-2.0-flash-exp")
+        st.caption("Modelo Ativo: gemini-1.5-flash (Alta Capacidade)")
 
     st.header("🎨 Estúdio Criativo")
     cenario = st.selectbox("Cenário", [
@@ -99,12 +100,13 @@ if uploaded_file and 'btn_gerar' in locals() and btn_gerar:
         with col2:
             st.subheader("2. Resultado IA")
             
-            with st.spinner("🧠 Ti Piantoni AI: Analisando com Gemini 2.0..."):
+            with st.spinner("🧠 Ti Piantoni AI: Analisando com Gemini 1.5 Flash..."):
                 try:
                     genai.configure(api_key=google_key)
                     
-                    # --- CORREÇÃO FINAL: Usando o modelo que apareceu no seu print ---
-                    model = genai.GenerativeModel('gemini-2.0-flash-exp')
+                    # --- AQUI ESTÁ A CORREÇÃO DE COTA ---
+                    # Usamos o 1.5 Flash que tem limites muito maiores e agora funciona pois a lib é nova (0.8.3)
+                    model = genai.GenerativeModel('gemini-1.5-flash')
                     
                     prompt_full = f"""
                     Analise esta imagem. O produto deve ser inserido neste cenário: {cenario}.
@@ -132,7 +134,6 @@ if uploaded_file and 'btn_gerar' in locals() and btn_gerar:
                     
                 except Exception as e:
                     st.error(f"Erro no Google AI: {e}")
-                    # Se der erro aqui, é erro de chave ou cota, pois o modelo existe.
                     st.stop()
             
             # PARTE 2: IMAGEM
